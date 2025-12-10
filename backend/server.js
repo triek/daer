@@ -2,6 +2,10 @@ const express = require("express");
 const app = express();
 app.use(express.json());
 
+app.get("/", (req, res) => {
+  res.send("API is alive");
+});
+
 // In-memory test data
 let items = [
   { id: 1, name: "Test item 1" },
