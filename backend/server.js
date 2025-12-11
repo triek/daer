@@ -45,4 +45,5 @@ app.delete("/items/:id", (req, res) => {
   res.status(204).send();
 });
 
-app.listen(3000, () => console.log("API running on port 3000"));
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log("API running on port " + PORT));
