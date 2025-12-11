@@ -13,7 +13,7 @@ app.get("/", (req, res) => {
 
 // In-memory test data
 let items = [
-  { id: 1, name: "Test item 3" },
+  { id: 1, name: "Test item 4" },
   { id: 2, name: "Test item 2" }
 ];
 
