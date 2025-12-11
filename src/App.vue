@@ -94,6 +94,9 @@ const removeBook = async (id) => {
 }
 
 onMounted(fetchBooks)
+
+console.log("API URL TEST:", import.meta.env.VITE_API_URL)
+
 </script>
 
 <template>
