@@ -128,5 +128,56 @@ app.post("/books", (req, res) => {
   res.status(201).json(formatBookResponse(newBook));
 });
 
+app.patch("/books/:id", (req, res) => {
+  const bookIndex = books.findIndex(book => book.id === Number(req.params.id));
+
+  if (bookIndex === -1) {
+    return res.status(404).json({ error: "Not found" });
+  }
+
+  const currentBook = books[bookIndex];
+  const payload = req.body ?? {};
+
+  const mergedPayload = {
+    title: payload.title ?? currentBook.title,
+    author: payload.author ?? currentBook.author,
+    totalPages: payload.totalPages ?? currentBook.totalPages
+  };
+
+  const validationResult = validateBookPayload(mergedPayload);
+
+  if (!validationResult.valid) {
+    return res.status(400).json({ error: validationResult.message });
+  }
+
+  const updatedBook = {
+    ...currentBook,
+    ...payload,
+    title: mergedPayload.title.trim(),
+    author:
+      payload.author === undefined
+        ? currentBook.author
+        : payload.author?.trim() ?? null,
+    totalPages: mergedPayload.totalPages,
+    updatedAt: new Date().toISOString()
+  };
+
+  books[bookIndex] = updatedBook;
+
+  res.json(formatBookResponse(updatedBook));
+});
+
+app.delete("/books/:id", (req, res) => {
+  const bookIndex = books.findIndex(book => book.id === Number(req.params.id));
+
+  if (bookIndex === -1) {
+    return res.status(404).json({ error: "Not found" });
+  }
+
+  books.splice(bookIndex, 1);
+
+  res.status(204).send();
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log("API running on port " + PORT));

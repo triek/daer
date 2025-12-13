@@ -8,8 +8,13 @@ const colorMap = ref({})
 const formTitle = ref('')
 const formAuthor = ref('')
 const formTotalPages = ref('')
+const editTitle = ref('')
+const editAuthor = ref('')
+const editTotalPages = ref('')
 const statusMessage = ref('Use this shelf to try the books API with fresh titles.')
 const loading = ref(false)
+const submitting = ref(false)
+const editingBookId = ref(null)
 const bannerVisible = ref(false)
 const bannerMessage = ref('')
 const bannerCountdown = ref(null)
@@ -191,33 +196,46 @@ const startServerWakeBanner = ({ immediateFailure = false, failureMessage = 'Fai
   }, 1000)
 }
 
-const buildPayload = () => {
+const buildPayloadFromValues = ({ title, author, totalPages }) => {
   const payload = {
-    title: formTitle.value.trim(),
-    totalPages: Number(formTotalPages.value),
+    title: title.trim(),
+    totalPages: Number(totalPages),
   }
 
-  if (formAuthor.value.trim()) {
-    payload.author = formAuthor.value.trim()
+  if (author?.trim()) {
+    payload.author = author.trim()
   }
 
   return payload
 }
 
-const saveBook = async () => {
-  const payload = buildPayload()
+const buildPayload = () => buildPayloadFromValues({ title: formTitle.value, author: formAuthor.value, totalPages: formTotalPages.value })
+const buildEditPayload = () =>
+  buildPayloadFromValues({ title: editTitle.value, author: editAuthor.value, totalPages: editTotalPages.value })
 
+const validatePayload = (payload) => {
   if (!payload.title) {
     setMessage('Give the book a title before saving.')
-    return
+    return false
   }
 
   if (!Number.isInteger(payload.totalPages) || payload.totalPages <= 0) {
     setMessage('Total pages must be a positive integer.')
-    return
+    return false
   }
 
+  return true
+}
+
+const saveBook = async () => {
+  if (submitting.value) return
+
+  const payload = buildPayload()
+
+  if (!validatePayload(payload)) return
+
   setMessage('Adding a new book to the shelf...')
+  submitting.value = true
 
   try {
     const response = await fetch(apiUrl, {
@@ -235,6 +253,81 @@ const saveBook = async () => {
     resetForm()
   } catch (error) {
     setMessage(error.message)
+  } finally {
+    submitting.value = false
+  }
+}
+
+const startEdit = (book) => {
+  editingBookId.value = book.id
+  editTitle.value = book.title
+  editAuthor.value = book.author ?? ''
+  editTotalPages.value = book.totalPages
+}
+
+const cancelEdit = () => {
+  editingBookId.value = null
+  editTitle.value = ''
+  editAuthor.value = ''
+  editTotalPages.value = ''
+}
+
+const updateBook = async () => {
+  if (!editingBookId.value || submitting.value) return
+
+  const payload = buildEditPayload()
+  if (!validatePayload(payload)) return
+
+  setMessage('Saving your book updates...')
+  submitting.value = true
+
+  try {
+    const response = await fetch(`${apiUrl}/${editingBookId.value}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+
+    if (!response.ok) throw new Error('Update failed. Please try again.')
+
+    const updated = await response.json()
+    const index = books.value.findIndex((book) => book.id === editingBookId.value)
+    if (index !== -1) {
+      books.value[index] = updated
+    }
+
+    setMessage(`"${updated.title}" updated successfully.`)
+    cancelEdit()
+  } catch (error) {
+    setMessage(error.message)
+  } finally {
+    submitting.value = false
+  }
+}
+
+const deleteBook = async (bookId) => {
+  if (submitting.value) return
+
+  const book = books.value.find((item) => item.id === bookId)
+  setMessage(book ? `Removing "${book.title}" from the shelf...` : 'Removing book from the shelf...')
+  submitting.value = true
+
+  try {
+    const response = await fetch(`${apiUrl}/${bookId}`, { method: 'DELETE' })
+    if (!response.ok) throw new Error('Delete failed. Please try again.')
+
+    books.value = books.value.filter((item) => item.id !== bookId)
+    delete colorMap.value[bookId]
+
+    if (editingBookId.value === bookId) {
+      cancelEdit()
+    }
+
+    setMessage('Book removed from the shelf.')
+  } catch (error) {
+    setMessage(error.message)
+  } finally {
+    submitting.value = false
   }
 }
 
@@ -320,7 +413,7 @@ onUnmounted(clearBannerTimers)
                 type="text"
                 name="title"
                 placeholder="E.g. The Night Library"
-                :disabled="loading"
+                :disabled="loading || submitting"
                 required
                 class="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-base text-white placeholder:text-slate-400 shadow-inner outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-400/40 disabled:opacity-70"
               />
@@ -333,7 +426,7 @@ onUnmounted(clearBannerTimers)
                 type="text"
                 name="author"
                 placeholder="E.g. Adriana Tome"
-                :disabled="loading"
+                :disabled="loading || submitting"
                 class="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-base text-white placeholder:text-slate-400 shadow-inner outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-400/40 disabled:opacity-70"
               />
             </label>
@@ -347,7 +440,7 @@ onUnmounted(clearBannerTimers)
                 step="1"
                 name="totalPages"
                 placeholder="E.g. 320"
-                :disabled="loading"
+                :disabled="loading || submitting"
                 required
                 class="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-base text-white placeholder:text-slate-400 shadow-inner outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-400/40 disabled:opacity-70"
               />
@@ -357,14 +450,14 @@ onUnmounted(clearBannerTimers)
               <button
                 class="inline-flex items-center justify-center rounded-xl bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-indigo-500/30 transition hover:shadow-indigo-500/50 disabled:opacity-70"
                 type="submit"
-                :disabled="loading"
+                :disabled="loading || submitting"
               >
-                Add book
+                {{ submitting ? 'Saving...' : 'Add book' }}
               </button>
               <button
                 class="inline-flex items-center justify-center rounded-xl border border-white/20 px-5 py-3 text-sm font-semibold text-white/90 transition hover:border-white/40 hover:text-white disabled:opacity-70"
                 type="button"
-                :disabled="loading"
+                :disabled="loading || submitting"
                 @click="resetForm"
               >
                 Clear form
@@ -391,26 +484,98 @@ onUnmounted(clearBannerTimers)
               class="flex flex-col justify-between gap-4 rounded-2xl p-5 text-white shadow-2xl transition hover:-translate-y-0.5 hover:shadow-3xl"
               :style="{ backgroundImage: colorMap[book.id] || defaultGradient }"
             >
-              <div class="space-y-3">
-                <div class="flex items-start justify-between gap-3">
-                  <p class="text-lg font-semibold leading-tight">{{ book.title }}</p>
-                  <span class="rounded-full bg-white/15 px-3 py-1 text-xs font-semibold uppercase tracking-[0.08em]">{{ book.totalPages }} pages</span>
+              <div class="space-y-4">
+                <div v-if="editingBookId === book.id" class="space-y-3 rounded-xl bg-white/10 p-3">
+                  <label class="block space-y-1 text-xs font-semibold uppercase tracking-[0.15em] text-white/70">
+                    <span>Title</span>
+                    <input
+                      v-model="editTitle"
+                      type="text"
+                      class="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-sm text-white placeholder:text-white/60 shadow-inner outline-none transition focus:border-emerald-300 focus:ring-2 focus:ring-emerald-300/40"
+                      :disabled="submitting"
+                      required
+                    />
+                  </label>
+                  <label class="block space-y-1 text-xs font-semibold uppercase tracking-[0.15em] text-white/70">
+                    <span>Author</span>
+                    <input
+                      v-model="editAuthor"
+                      type="text"
+                      class="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-sm text-white placeholder:text-white/60 shadow-inner outline-none transition focus:border-emerald-300 focus:ring-2 focus:ring-emerald-300/40"
+                      :disabled="submitting"
+                    />
+                  </label>
+                  <label class="block space-y-1 text-xs font-semibold uppercase tracking-[0.15em] text-white/70">
+                    <span>Total pages</span>
+                    <input
+                      v-model="editTotalPages"
+                      type="number"
+                      min="1"
+                      step="1"
+                      class="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-sm text-white placeholder:text-white/60 shadow-inner outline-none transition focus:border-emerald-300 focus:ring-2 focus:ring-emerald-300/40"
+                      :disabled="submitting"
+                      required
+                    />
+                  </label>
                 </div>
-                <div class="space-y-1 text-sm text-white/80">
-                  <p v-if="book.author" class="flex items-center gap-2">
-                    <span class="text-xs uppercase tracking-[0.2em] text-white/70">Author</span>
-                    <span class="font-medium">{{ book.author }}</span>
-                  </p>
-                  <p class="flex items-center gap-2">
-                    <span class="text-xs uppercase tracking-[0.2em] text-white/70">Created</span>
-                    <span>{{ new Date(book.createdAt).toLocaleString() }}</span>
-                  </p>
-                  <p class="flex items-center gap-2">
-                    <span class="text-xs uppercase tracking-[0.2em] text-white/70">Updated</span>
-                    <span>{{ new Date(book.updatedAt).toLocaleString() }}</span>
-                  </p>
+                <div v-else class="space-y-3">
+                  <div class="flex items-start justify-between gap-3">
+                    <p class="text-lg font-semibold leading-tight">{{ book.title }}</p>
+                    <span class="rounded-full bg-white/15 px-3 py-1 text-xs font-semibold uppercase tracking-[0.08em]">{{ book.totalPages }} pages</span>
+                  </div>
+                  <div class="space-y-1 text-sm text-white/80">
+                    <p v-if="book.author" class="flex items-center gap-2">
+                      <span class="text-xs uppercase tracking-[0.2em] text-white/70">Author</span>
+                      <span class="font-medium">{{ book.author }}</span>
+                    </p>
+                    <p class="flex items-center gap-2">
+                      <span class="text-xs uppercase tracking-[0.2em] text-white/70">Created</span>
+                      <span>{{ new Date(book.createdAt).toLocaleString() }}</span>
+                    </p>
+                    <p class="flex items-center gap-2">
+                      <span class="text-xs uppercase tracking-[0.2em] text-white/70">Updated</span>
+                      <span>{{ new Date(book.updatedAt).toLocaleString() }}</span>
+                    </p>
+                  </div>
+                  <p class="text-xs uppercase tracking-[0.1em] text-white/80">ID: {{ book.id }}</p>
                 </div>
-                <p class="text-xs uppercase tracking-[0.1em] text-white/80">ID: {{ book.id }}</p>
+              </div>
+              <div class="flex flex-wrap gap-2 text-sm font-semibold">
+                <button
+                  v-if="editingBookId === book.id"
+                  class="rounded-lg bg-emerald-500/90 px-4 py-2 text-white shadow-md shadow-emerald-500/30 transition hover:bg-emerald-500 disabled:opacity-70"
+                  type="button"
+                  :disabled="submitting"
+                  @click="updateBook"
+                >
+                  {{ submitting ? 'Saving...' : 'Save changes' }}
+                </button>
+                <button
+                  v-if="editingBookId === book.id"
+                  class="rounded-lg border border-white/30 px-4 py-2 text-white/90 transition hover:border-white/60 hover:text-white disabled:opacity-70"
+                  type="button"
+                  :disabled="submitting"
+                  @click="cancelEdit"
+                >
+                  Cancel
+                </button>
+                <button
+                  v-else
+                  class="rounded-lg border border-white/30 px-4 py-2 text-white/90 transition hover:border-white/60 hover:text-white disabled:opacity-70"
+                  type="button"
+                  :disabled="loading || submitting"
+                  @click="startEdit(book)"
+                >
+                  Edit
+                </button>
+                <button
+                  class="rounded-lg border border-rose-200/60 bg-white/10 px-4 py-2 text-rose-100 transition hover:border-rose-200 hover:bg-white/20 hover:text-white disabled:opacity-70"
+                  type="button"
+                  :disabled="loading || submitting"
+                  @click="deleteBook(book.id)"
+                >
+                  Delete
+                </button>
               </div>
             </li>
           </ul>
