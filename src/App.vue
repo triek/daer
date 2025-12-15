@@ -5,12 +5,17 @@ const apiBaseUrl = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '')
 const apiUrl = `${apiBaseUrl}/books`
 const books = ref([])
 const colorMap = ref({})
+const logsByBookId = ref({})
 const formTitle = ref('')
 const formAuthor = ref('')
 const formTotalPages = ref('')
 const editTitle = ref('')
 const editAuthor = ref('')
 const editTotalPages = ref('')
+const logFormDate = ref('')
+const logFormPages = ref('')
+const activeLogBookId = ref(null)
+const fetchingLogs = ref(false)
 const statusMessage = ref('Use this shelf to try the books API with fresh titles.')
 const loading = ref(false)
 const submitting = ref(false)
@@ -318,12 +323,94 @@ const deleteBook = async (bookId) => {
 
     books.value = books.value.filter((item) => item.id !== bookId)
     delete colorMap.value[bookId]
+    delete logsByBookId.value[bookId]
 
     if (editingBookId.value === bookId) {
       cancelEdit()
     }
 
     setMessage('Book removed from the shelf.')
+  } catch (error) {
+    setMessage(error.message)
+  } finally {
+    submitting.value = false
+  }
+}
+
+const ensureLogFormDefaults = () => {
+  if (!logFormDate.value) {
+    logFormDate.value = new Date().toISOString().slice(0, 10)
+  }
+  if (!logFormPages.value) {
+    logFormPages.value = ''
+  }
+}
+
+const fetchLogsForBook = async (bookId) => {
+  if (fetchingLogs.value && activeLogBookId.value === bookId) return
+
+  fetchingLogs.value = true
+  try {
+    const response = await fetch(`${apiUrl}/${bookId}/logs`)
+    if (!response.ok) throw new Error('Unable to load reading logs.')
+    const data = await response.json()
+    logsByBookId.value[bookId] = data
+    activeLogBookId.value = bookId
+    ensureLogFormDefaults()
+  } catch (error) {
+    setMessage(error.message)
+  } finally {
+    fetchingLogs.value = false
+  }
+}
+
+const toggleLogs = async (bookId) => {
+  if (activeLogBookId.value === bookId) {
+    activeLogBookId.value = null
+    return
+  }
+  await fetchLogsForBook(bookId)
+}
+
+const validateLogForm = () => {
+  if (!logFormDate.value) {
+    setMessage('Select a date for the log entry.')
+    return false
+  }
+
+  const pages = Number(logFormPages.value)
+  if (!Number.isInteger(pages) || pages <= 0) {
+    setMessage('Pages read must be a positive integer.')
+    return false
+  }
+
+  return true
+}
+
+const saveLogForBook = async (bookId) => {
+  if (submitting.value) return
+  ensureLogFormDefaults()
+  if (!validateLogForm()) return
+
+  submitting.value = true
+  setMessage('Adding reading log...')
+
+  try {
+    const payload = { date: logFormDate.value, pagesRead: Number(logFormPages.value) }
+    const response = await fetch(`${apiUrl}/${bookId}/logs`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+
+    if (!response.ok) {
+      const errorText = await response.json().catch(() => ({ error: 'Failed to save log.' }))
+      throw new Error(errorText.error || 'Failed to save log.')
+    }
+
+    const newLog = await response.json()
+    logsByBookId.value[bookId] = [...(logsByBookId.value[bookId] ?? []), newLog].sort((a, b) => a.date.localeCompare(b.date))
+    setMessage('Log entry added successfully.')
   } catch (error) {
     setMessage(error.message)
   } finally {
@@ -570,6 +657,14 @@ onUnmounted(clearBannerTimers)
                   Edit
                 </button>
                 <button
+                  class="rounded-lg border border-white/30 px-4 py-2 text-white/90 transition hover:border-white/60 hover:text-white disabled:opacity-70"
+                  type="button"
+                  :disabled="loading || submitting"
+                  @click="toggleLogs(book.id)"
+                >
+                  {{ activeLogBookId === book.id ? 'Hide logs' : 'Logs' }}
+                </button>
+                <button
                   class="rounded-lg border border-rose-200/60 bg-white/10 px-4 py-2 text-rose-100 transition hover:border-rose-200 hover:bg-white/20 hover:text-white disabled:opacity-70"
                   type="button"
                   :disabled="loading || submitting"
@@ -577,6 +672,72 @@ onUnmounted(clearBannerTimers)
                 >
                   Delete
                 </button>
+              </div>
+
+              <div v-if="activeLogBookId === book.id" class="rounded-xl bg-white/10 p-4 text-white/90">
+                <div class="mb-4 flex flex-wrap items-center gap-2 text-sm">
+                  <span class="rounded-full bg-white/15 px-3 py-1 text-xs font-semibold uppercase tracking-[0.08em]">Reading logs</span>
+                  <span v-if="fetchingLogs" class="text-xs text-white/80">Loading logs...</span>
+                </div>
+
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-end">
+                  <label class="flex-1 space-y-1 text-xs font-semibold uppercase tracking-[0.15em] text-white/70">
+                    <span>Date</span>
+                    <input
+                      v-model="logFormDate"
+                      type="date"
+                      class="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-sm text-white placeholder:text-white/60 shadow-inner outline-none transition focus:border-emerald-300 focus:ring-2 focus:ring-emerald-300/40"
+                      :disabled="submitting"
+                      required
+                    />
+                  </label>
+                  <label class="flex-1 space-y-1 text-xs font-semibold uppercase tracking-[0.15em] text-white/70">
+                    <span>Pages read</span>
+                    <input
+                      v-model="logFormPages"
+                      type="number"
+                      min="1"
+                      step="1"
+                      class="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-sm text-white placeholder:text-white/60 shadow-inner outline-none transition focus:border-emerald-300 focus:ring-2 focus:ring-emerald-300/40"
+                      :disabled="submitting"
+                      required
+                    />
+                  </label>
+                  <button
+                    class="inline-flex items-center justify-center rounded-lg bg-emerald-500/90 px-4 py-2 text-sm font-semibold text-white shadow-md shadow-emerald-500/30 transition hover:bg-emerald-500 disabled:opacity-70"
+                    type="button"
+                    :disabled="submitting"
+                    @click="saveLogForBook(book.id)"
+                  >
+                    {{ submitting ? 'Saving...' : 'Add log' }}
+                  </button>
+                </div>
+
+                <div v-if="logsByBookId[book.id]?.length" class="mt-4 space-y-2 text-sm">
+                  <div class="flex items-center justify-between text-xs uppercase tracking-[0.12em] text-white/70">
+                    <span>Existing logs</span>
+                    <span class="rounded-full bg-white/15 px-2 py-1 text-[11px] font-semibold">
+                      Total pages read:
+                      {{ logsByBookId[book.id].reduce((sum, log) => sum + log.pagesRead, 0) }} / {{ book.totalPages }}
+                    </span>
+                  </div>
+                  <ul class="space-y-2">
+                    <li
+                      v-for="log in logsByBookId[book.id]"
+                      :key="log.id"
+                      class="flex items-center justify-between rounded-lg border border-white/10 bg-white/5 px-3 py-2"
+                    >
+                      <div class="flex flex-col">
+                        <span class="text-xs uppercase tracking-[0.12em] text-white/70">{{ log.date }}</span>
+                        <span class="text-base font-semibold">{{ log.pagesRead }} pages</span>
+                      </div>
+                      <span class="text-xs text-white/70">Logged at {{ new Date(log.createdAt).toLocaleString() }}</span>
+                    </li>
+                  </ul>
+                </div>
+                <p v-else class="mt-4 rounded-lg border border-dashed border-white/15 bg-white/5 p-3 text-sm text-white/80">
+                  No logs yet. Add your first reading entry.
+                </p>
               </div>
             </li>
           </ul>
