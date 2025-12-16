@@ -3,6 +3,7 @@ import { onMounted, onUnmounted, ref } from 'vue'
 
 const apiBaseUrl = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '')
 const apiUrl = `${apiBaseUrl}/books`
+const serverInfoUrl = 'https://daer-ifxi.onrender.com/'
 const books = ref([])
 const colorMap = ref({})
 const logsByBookId = ref({})
@@ -232,6 +233,21 @@ const validatePayload = (payload) => {
   return true
 }
 
+const postBook = async (payload) => {
+  const response = await fetch(apiUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+
+  if (!response.ok) throw new Error('Request failed. Check the API and try again.')
+
+  const data = await response.json()
+  books.value.push(data)
+  colorMap.value[data.id] = gradientFromIndex(nextColorIndex())
+  return data
+}
+
 const saveBook = async () => {
   if (submitting.value) return
 
@@ -243,17 +259,7 @@ const saveBook = async () => {
   submitting.value = true
 
   try {
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    })
-
-    if (!response.ok) throw new Error('Request failed. Check the API and try again.')
-
-    const data = await response.json()
-    books.value.push(data)
-    colorMap.value[data.id] = gradientFromIndex(nextColorIndex())
+    const data = await postBook(payload)
     setMessage(`"${data.title}" added. Keep the reading streak alive!`)
     resetForm()
   } catch (error) {
@@ -387,6 +393,33 @@ const validateLogForm = () => {
   return true
 }
 
+const addLogToState = (bookId, log) => {
+  const updatedLogs = [...(logsByBookId.value[bookId] ?? []), log].sort((a, b) => a.date.localeCompare(b.date))
+
+  logsByBookId.value = {
+    ...logsByBookId.value,
+    [bookId]: updatedLogs,
+  }
+  activeLogBookId.value = bookId
+}
+
+const postLogForBook = async (bookId, payload) => {
+  const response = await fetch(`${apiUrl}/${bookId}/logs`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+
+  if (!response.ok) {
+    const errorText = await response.json().catch(() => ({ error: 'Failed to save log.' }))
+    throw new Error(errorText.error || 'Failed to save log.')
+  }
+
+  const newLog = await response.json()
+  addLogToState(bookId, newLog)
+  return newLog
+}
+
 const saveLogForBook = async (bookId) => {
   if (submitting.value) return
   ensureLogFormDefaults()
@@ -396,21 +429,58 @@ const saveLogForBook = async (bookId) => {
   setMessage('Adding reading log...')
 
   try {
-    const payload = { date: logFormDate.value, pagesRead: Number(logFormPages.value) }
-    const response = await fetch(`${apiUrl}/${bookId}/logs`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    })
+    await postLogForBook(bookId, { date: logFormDate.value, pagesRead: Number(logFormPages.value) })
+    setMessage('Log entry added successfully.')
+  } catch (error) {
+    setMessage(error.message)
+  } finally {
+    submitting.value = false
+  }
+}
 
-    if (!response.ok) {
-      const errorText = await response.json().catch(() => ({ error: 'Failed to save log.' }))
-      throw new Error(errorText.error || 'Failed to save log.')
+const demoBooks = [
+  {
+    title: 'Dune: Starter Edition',
+    author: 'Frank Herbert',
+    totalPages: 220,
+    logs: [
+      { date: '2025-01-02', pagesRead: 40 },
+      { date: '2025-01-03', pagesRead: 30 },
+    ],
+  },
+  {
+    title: 'Project Hail Mary: Preview',
+    author: 'Andy Weir',
+    totalPages: 260,
+    logs: [
+      { date: '2025-01-04', pagesRead: 35 },
+      { date: '2025-01-05', pagesRead: 45 },
+    ],
+  },
+]
+
+const seedDemoBooksWithLogs = async () => {
+  if (submitting.value || loading.value) return
+
+  submitting.value = true
+  setMessage('Seeding demo books and logs...')
+
+  try {
+    for (const demo of demoBooks) {
+      const payload = buildPayloadFromValues({
+        title: demo.title,
+        author: demo.author,
+        totalPages: demo.totalPages,
+      })
+
+      const createdBook = await postBook(payload)
+
+      for (const log of demo.logs) {
+        await postLogForBook(createdBook.id, log)
+      }
     }
 
-    const newLog = await response.json()
-    logsByBookId.value[bookId] = [...(logsByBookId.value[bookId] ?? []), newLog].sort((a, b) => a.date.localeCompare(b.date))
-    setMessage('Log entry added successfully.')
+    setMessage('Demo books added with sample reading logs. Ready to explore!')
   } catch (error) {
     setMessage(error.message)
   } finally {
@@ -475,14 +545,24 @@ onUnmounted(clearBannerTimers)
               </h2>
               <p class="mt-1 text-sm text-slate-300">Create new books to test POST /books validation.</p>
             </div>
-            <button
-              class="rounded-full border border-white/20 px-4 py-2 text-sm font-semibold text-white/90 transition hover:border-white/40 hover:text-white"
-              type="button"
-              :disabled="loading"
-              @click="fetchBooks({ triggerBannerOnFailure: true, allowImmediateFailure: false })"
-            >
-              {{ loading ? 'Refreshing...' : 'Refresh list' }}
-            </button>
+            <div class="flex flex-wrap items-center justify-end gap-2">
+              <button
+                class="rounded-full border border-white/20 px-4 py-2 text-sm font-semibold text-white/90 transition hover:border-white/40 hover:text-white"
+                type="button"
+                :disabled="loading"
+                @click="fetchBooks({ triggerBannerOnFailure: true, allowImmediateFailure: false })"
+              >
+                {{ loading ? 'Refreshing...' : 'Refresh list' }}
+              </button>
+              <button
+                class="rounded-full border border-emerald-200/60 bg-emerald-500/10 px-4 py-2 text-sm font-semibold text-emerald-100 transition hover:border-emerald-200 hover:bg-emerald-500/20 hover:text-white disabled:opacity-70"
+                type="button"
+                :disabled="loading || submitting"
+                @click="seedDemoBooksWithLogs"
+              >
+                {{ submitting ? 'Seeding...' : 'Add demo books + logs' }}
+              </button>
+            </div>
           </div>
 
           <form class="mt-6 space-y-5" @submit.prevent="saveBook">
@@ -548,9 +628,20 @@ onUnmounted(clearBannerTimers)
 
         <!-- API status message -->
         <section class="rounded-2xl border border-white/10 bg-slate-900/50 p-4 shadow-xl backdrop-blur">
-          <div class="flex items-center gap-3 text-sm text-slate-200">
-            <span class="inline-flex h-2 w-2 rounded-full bg-emerald-400"></span>
-            <p>{{ statusMessage }}</p>
+          <div class="flex items-start gap-3 text-sm text-slate-200">
+            <span class="mt-1 inline-flex h-2 w-2 rounded-full bg-emerald-400"></span>
+            <div class="space-y-1">
+              <p class="whitespace-pre-line leading-relaxed">{{ statusMessage }}</p>
+              <a
+                :href="serverInfoUrl"
+                class="inline-flex items-center gap-1 text-xs font-medium text-slate-400 transition hover:text-slate-200"
+                target="_blank"
+                rel="noreferrer"
+              >
+                <span class="h-1 w-1 rounded-full bg-slate-400"></span>
+                <span class="underline underline-offset-2">Server: {{ serverInfoUrl }}</span>
+              </a>
+            </div>
           </div>
         </section>
 
