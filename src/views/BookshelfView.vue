@@ -288,6 +288,7 @@ const saveBook = async () => {
 
 // Start edit mode
 const startEdit = (book) => {
+  activeLogBookId.value = null
   editingBookId.value = book.id
   editTitle.value = book.title
   editAuthor.value = book.author ?? ''
@@ -436,6 +437,10 @@ const validateLogForm = () => {
 
   return true
 }
+
+// Total pages read for a book
+const pagesReadForBook = (bookId) =>
+  (logsByBookId.value[bookId] ?? []).reduce((sum, log) => sum + log.pagesRead, 0)
 
 // Add log entry to state
 const addLogToState = (bookId, log) => {
@@ -765,7 +770,9 @@ onUnmounted(clearBannerTimers)
                 <div v-else class="space-y-3">
                   <div class="flex items-start justify-between gap-3">
                     <p class="text-lg font-semibold leading-tight">{{ book.title }}</p>
-                    <span class="rounded-full bg-white/15 px-3 py-1 text-xs font-semibold uppercase tracking-[0.08em]">{{ book.totalPages }} pages</span>
+                    <span class="rounded-full bg-white/15 px-3 py-1 text-xs font-semibold uppercase tracking-[0.08em]">
+                      {{ pagesReadForBook(book.id) }} / {{ book.totalPages }}
+                    </span>
                   </div>
                   <div class="space-y-1 text-sm text-white/80">
                     <p v-if="book.author" class="flex items-center gap-2">
@@ -884,7 +891,7 @@ onUnmounted(clearBannerTimers)
                     <span>Existing logs</span>
                     <span class="rounded-full bg-white/15 px-2 py-1 text-[11px] font-semibold">
                       Total pages read:
-                      {{ logsByBookId[book.id].reduce((sum, log) => sum + log.pagesRead, 0) }} / {{ book.totalPages }}
+                      {{ pagesReadForBook(book.id) }} / {{ book.totalPages }}
                     </span>
                   </div>
                   <ul class="space-y-2">
