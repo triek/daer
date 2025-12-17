@@ -514,7 +514,7 @@ const demoBooks = [
     author: "Riley Morgan",
     totalPages: 340,
     logs: [
-      { date: '2025-12-9', pagesRead: 35 },
+      { date: '2025-12-09', pagesRead: 35 },
       { date: '2025-12-12', pagesRead: 45 },
     ],
   },
@@ -900,11 +900,10 @@ onUnmounted(clearBannerTimers)
                       :key="log.id"
                       class="flex items-center justify-between rounded-lg border border-white/20 bg-white/5 px-3 py-2"
                     >
-                      <div class="flex flex-col">
+                      <div class="flex items-center justify-between w-full">
                         <span class="text-xs uppercase tracking-[0.12em] text-white/70">{{ log.date }}</span>
-                        <span class="text-base font-semibold">{{ log.pagesRead }} pages</span>
+                        <span class="text-base font-semibold -translate-y-0.5">{{ log.pagesRead }} pages</span>
                       </div>
-                      <span class="text-xs text-white/70">Logged at {{ new Date(log.createdAt).toLocaleString() }}</span>
                     </li>
                   </ul>
                 </div>
